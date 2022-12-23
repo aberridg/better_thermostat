@@ -17,5 +17,5 @@
     "@kartoffeltoby",
     "@RubenKelevra"
   ],
-  "requirements": []
+  "requirements": ["simple-pid==1.0.1"]
 }
