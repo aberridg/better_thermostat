@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime
 from typing import Union
+
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 
@@ -23,6 +24,11 @@ from ..const import (
 
 
 _LOGGER = logging.getLogger(__name__)
+
+from simple_pid import PID
+
+pid = PID(5, 0.0, 0.0, setpoint=21.5)
+pid.output_limits = (15, 25) 
 
 
 def mode_remap(self, entity_id, hvac_mode: str, inbound: bool = False) -> str:
@@ -105,6 +111,10 @@ def calculate_local_setpoint_delta(self, entity_id) -> Union[float, None]:
 
     self.old_internal_temp = self.real_trvs[entity_id]["current_temperature"]
     self.old_external_temp = self.cur_temp
+
+    output = pid(self.cur_temp)
+
+    _LOGGER.debug(f"Pid {output}")
 
     _current_trv_calibration = round_to_half_degree(
         convert_to_float(
@@ -195,6 +205,17 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
     float
             new target temp with calibration
     """
+
+    pid.setpoint = self.bt_target_temp
+    pid.output_limits = (max(5, self.bt_target_temp - 15), min(self.bt_target_temp + 20, 30)) 
+    _LOGGER.debug(f"In calculate_setpoint_override, with cur_temp {self.cur_temp} and target {self.bt_target_temp}")
+
+    _output = pid(self.cur_temp)
+    
+    _LOGGER.debug(
+            f"better_thermostat {self.name}: PID: {entity_id} input: {self.cur_temp} output: {_output}"
+    )
+
     if None in (self.cur_temp, self.bt_target_temp):
         return None
 
@@ -232,7 +253,9 @@ def calculate_setpoint_override(self, entity_id) -> Union[float, None]:
         if (self.cur_temp + 0.10) >= self.bt_target_temp:
             _calibrated_setpoint -= 1.0
 
-    _calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
+    _calibrated_setpoint = round_down_to_half_degree(_output)
+
+    #_calibrated_setpoint = round_down_to_half_degree(_calibrated_setpoint)
 
     # check if new setpoint is inside the TRV's range, else set to min or max
     if _calibrated_setpoint < self.real_trvs[entity_id]["min_temp"]:
